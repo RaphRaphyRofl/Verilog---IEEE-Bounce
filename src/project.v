@@ -1,6 +1,6 @@
 `default_nettype none
 
-module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
+module tt_um_vga_example (
     input  wire [7:0] ui_in,    
     output wire [7:0] uo_out,   
     input  wire [7:0] uio_in,   
@@ -29,7 +29,6 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
 
     // 3. ANIMATION PARAMETERS
     localparam HALF_SIZE = 60;   
-    localparam BOX_SIZE  = 120;  
 
     reg signed [10:0] x [0:3];
     reg signed [10:0] y [0:3];
@@ -38,7 +37,7 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
     
     wire frame_tick = (vpos == 10'd479 && hpos == 10'd639);
 
-    // 4. MOVEMENT & COLLISION
+    // 4. MOVEMENT (Wall Bounce Only - No Inter-ball Collision)
     integer i;
     always @(posedge clk) begin
         if (~rst_n) begin
@@ -51,32 +50,17 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
                 x[i] <= x[i] + 11'($signed(vx[i])); 
                 y[i] <= y[i] + 11'($signed(vy[i]));
 
+                // Screen Boundary Bouncing
                 if (x[i] < HALF_SIZE) vx[i] <= 4'sd2; 
                 else if (x[i] > 11'd640 - HALF_SIZE) vx[i] <= -4'sd2;
                 
                 if (y[i] < HALF_SIZE) vy[i] <= 4'sd2; 
                 else if (y[i] > 11'd480 - HALF_SIZE) vy[i] <= -4'sd2;
             end
-            check_collision(2'd0, 2'd1); check_collision(2'd0, 2'd2); check_collision(2'd0, 2'd3);
-            check_collision(2'd1, 2'd2); check_collision(2'd1, 2'd3); check_collision(2'd2, 2'd3);
         end
     end
 
-    task check_collision(input [1:0] a, input [1:0] b);
-        reg [10:0] dx, dy;
-        begin
-            dx = (x[a] > x[b]) ? (x[a] - x[b]) : (x[b] - x[a]);
-            dy = (y[a] > y[b]) ? (y[a] - y[b]) : (y[b] - y[a]);
-            if (dx < BOX_SIZE[10:0] && dy < BOX_SIZE[10:0]) begin
-                vx[a] <= (x[a] < x[b]) ? -4'sd2 : 4'sd2; 
-                vx[b] <= (x[a] < x[b]) ? 4'sd2 : -4'sd2;
-                vy[a] <= (y[a] < y[b]) ? -4'sd2 : 4'sd2; 
-                vy[b] <= (y[a] < y[b]) ? 4'sd2 : -4'sd2;
-            end
-        end
-    endtask
-
-    // 5. SHAPE DRAWING (Resource Shared)
+    // 5. SHAPE DRAWING (Octagons + Letters)
     reg [3:0] ball_pixel;
     integer j;
     always @(*) begin
@@ -92,7 +76,7 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
                 ax = (rel_x[10]) ? -rel_x : rel_x;
                 ay = (rel_y[10]) ? -rel_y : rel_y;
 
-                // Octagon Shape
+                // Octagon Shape (Approximated circle)
                 in_octagon = (ax < 11'd60) && (ay < 11'd60) && ((ax + ay) < 11'd85);
 
                 // Letter Logic
