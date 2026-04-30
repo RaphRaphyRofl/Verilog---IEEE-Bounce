@@ -1,6 +1,6 @@
 `default_nettype none
 
-module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
+module tt_um_vga_example (
     input  wire [7:0] ui_in,    
     output wire [7:0] uo_out,   
     input  wire [7:0] uio_in,   
@@ -16,41 +16,47 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
     wire [9:0] hpos, vpos;
     hvsync_generator hvsync_gen (.clk(clk), .reset(~rst_n), .hsync(hsync), .vsync(vsync), .display_on(display_on), .hpos(hpos), .vpos(vpos));
 
-    // (LFSR Removed to save flip-flops/gates, since it was unused)
-
-    // 2. POSITIONS (Maintained as signed 11-bit for stable edge-bouncing)
+    // 2. POSITIONS (11-bit signed for stable math)
     reg signed [10:0] x0, x1, x2, x3;
     reg signed [10:0] y0, y1, y2, y3;
-    reg signed [3:0]  vx0, vx1, vx2, vx3;
-    reg signed [3:0]  vy0, vy1, vy2, vy3;
+
+    // Velocities: 1-bit direction flags (1 = positive movement, 0 = negative movement)
+    reg dx0, dx1, dx2, dx3;
+    reg dy0, dy1, dy2, dy3;
 
     wire frame_tick = (vpos == 479 && hpos == 639);
 
-    // 3. MOVEMENT
+    // 3. MOVEMENT (Optimized inc/dec logic)
     always @(posedge clk) begin
         if (~rst_n) begin
-            x0 <= 100; y0 <= 240; vx0 <= 2;  vy0 <= 2;
-            x1 <= 240; y1 <= 240; vx1 <= -2; vy1 <= 1;
-            x2 <= 380; y2 <= 240; vx2 <= 1;  vy2 <= -2;
-            x3 <= 520; y3 <= 240; vx3 <= -1; vy3 <= -1;
+            x0 <= 100; y0 <= 240; dx0 <= 1; dy0 <= 1; // +2, +2
+            x1 <= 240; y1 <= 240; dx1 <= 0; dy1 <= 1; // -2, +1
+            x2 <= 380; y2 <= 240; dx2 <= 1; dy2 <= 0; // +1, -2
+            x3 <= 520; y3 <= 240; dx3 <= 0; dy3 <= 0; // -1, -1
         end else if (frame_tick) begin
-            x0 <= x0 + 11'($signed(vx0)); y0 <= y0 + 11'($signed(vy0));
-            x1 <= x1 + 11'($signed(vx1)); y1 <= y1 + 11'($signed(vy1));
-            x2 <= x2 + 11'($signed(vx2)); y2 <= y2 + 11'($signed(vy2));
-            x3 <= x3 + 11'($signed(vx3)); y3 <= y3 + 11'($signed(vy3));
+            // Apply velocities based on direction flags
+            x0 <= dx0 ? x0 + 11'd2 : x0 - 11'd2;
+            y0 <= dy0 ? y0 + 11'd2 : y0 - 11'd2;
+            x1 <= dx1 ? x1 + 11'd2 : x1 - 11'd2;
+            y1 <= dy1 ? y1 + 11'd1 : y1 - 11'd1;
+            x2 <= dx2 ? x2 + 11'd1 : x2 - 11'd1;
+            y2 <= dy2 ? y2 + 11'd2 : y2 - 11'd2;
+            x3 <= dx3 ? x3 + 11'd1 : x3 - 11'd1;
+            y3 <= dy3 ? y3 + 11'd1 : y3 - 11'd1;
 
-            if (x0 < 60) vx0 <= 2; else if (x0 > 580) vx0 <= -2;
-            if (y0 < 60) vy0 <= 2; else if (y0 > 420) vy0 <= -2;
-            if (x1 < 60) vx1 <= 2; else if (x1 > 580) vx1 <= -2;
-            if (y1 < 60) vy1 <= 2; else if (y1 > 420) vy1 <= -2;
-            if (x2 < 60) vx2 <= 2; else if (x2 > 580) vx2 <= -2;
-            if (y2 < 60) vy2 <= 2; else if (y2 > 420) vy2 <= -2;
-            if (x3 < 60) vx3 <= 2; else if (x3 > 580) vx3 <= -2;
-            if (y3 < 60) vy3 <= 2; else if (y3 > 420) vy3 <= -2;
+            // Boundary bouncing (Flips the 1-bit direction flag)
+            if (x0 < 60) dx0 <= 1; else if (x0 > 580) dx0 <= 0;
+            if (y0 < 60) dy0 <= 1; else if (y0 > 420) dy0 <= 0;
+            if (x1 < 60) dx1 <= 1; else if (x1 > 580) dx1 <= 0;
+            if (y1 < 60) dy1 <= 1; else if (y1 > 420) dy1 <= 0;
+            if (x2 < 60) dx2 <= 1; else if (x2 > 580) dx2 <= 0;
+            if (y2 < 60) dy2 <= 1; else if (y2 > 420) dy2 <= 0;
+            if (x3 < 60) dx3 <= 1; else if (x3 > 580) dx3 <= 0;
+            if (y3 < 60) dy3 <= 1; else if (y3 > 420) dy3 <= 0;
         end
     end
 
-    // 4. DRAWING ENGINE (Flattened to eliminate for-loop & mux overhead)
+    // 4. DRAWING ENGINE (Flattened & Symmetric Letter Logic)
     wire signed [10:0] cur_h = {1'b0, hpos};
     wire signed [10:0] cur_v = {1'b0, vpos};
 
@@ -60,7 +66,8 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
     wire [10:0] ax0 = (rx0[10]) ? -rx0 : rx0; 
     wire [10:0] ay0 = (ry0[10]) ? -ry0 : ry0;
     wire shape0 = (ax0 < 60) && (ay0 < 60) && ((ax0 + ay0) < 85);
-    wire b0 = shape0 && !((ax0 < 8) && (ay0 < 35));
+    wire ink0   = (ax0 < 8) && (ay0 < 35);
+    wire b0     = shape0 && !ink0;
 
     // Ball 1 (Letter E)
     wire signed [10:0] rx1 = cur_h - x1; 
@@ -68,7 +75,9 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
     wire [10:0] ax1 = (rx1[10]) ? -rx1 : rx1; 
     wire [10:0] ay1 = (ry1[10]) ? -ry1 : ry1;
     wire shape1 = (ax1 < 60) && (ay1 < 60) && ((ax1 + ay1) < 85);
-    wire b1 = shape1 && !((ax1 < 25 && ay1 < 35) && !((rx1 > -10) && ((ry1 > -23 && ry1 < -6) || (ry1 > 6 && ry1 < 23))));
+    // Symmetric E Gap: Uses 'ay1' to carve out top and bottom gaps simultaneously!
+    wire ink1   = (ax1 < 25 && ay1 < 35) && !((rx1 > -10) && (ay1 > 6 && ay1 < 23));
+    wire b1     = shape1 && !ink1;
 
     // Ball 2 (Letter E)
     wire signed [10:0] rx2 = cur_h - x2; 
@@ -76,7 +85,8 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
     wire [10:0] ax2 = (rx2[10]) ? -rx2 : rx2; 
     wire [10:0] ay2 = (ry2[10]) ? -ry2 : ry2;
     wire shape2 = (ax2 < 60) && (ay2 < 60) && ((ax2 + ay2) < 85);
-    wire b2 = shape2 && !((ax2 < 25 && ay2 < 35) && !((rx2 > -10) && ((ry2 > -23 && ry2 < -6) || (ry2 > 6 && ry2 < 23))));
+    wire ink2   = (ax2 < 25 && ay2 < 35) && !((rx2 > -10) && (ay2 > 6 && ay2 < 23));
+    wire b2     = shape2 && !ink2;
 
     // Ball 3 (Letter E)
     wire signed [10:0] rx3 = cur_h - x3; 
@@ -84,7 +94,8 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
     wire [10:0] ax3 = (rx3[10]) ? -rx3 : rx3; 
     wire [10:0] ay3 = (ry3[10]) ? -ry3 : ry3;
     wire shape3 = (ax3 < 60) && (ay3 < 60) && ((ax3 + ay3) < 85);
-    wire b3 = shape3 && !((ax3 < 25 && ay3 < 35) && !((rx3 > -10) && ((ry3 > -23 && ry3 < -6) || (ry3 > 6 && ry3 < 23))));
+    wire ink3   = (ax3 < 25 && ay3 < 35) && !((rx3 > -10) && (ay3 > 6 && ay3 < 23));
+    wire b3     = shape3 && !ink3;
 
 
     // 5. COLOR OUTPUT
