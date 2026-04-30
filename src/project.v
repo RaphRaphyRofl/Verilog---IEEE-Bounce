@@ -1,6 +1,6 @@
 `default_nettype none
 
-module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
+module tt_um_vga_example (
     input  wire [7:0] ui_in,    
     output wire [7:0] uo_out,   
     input  wire [7:0] uio_in,   
@@ -16,14 +16,9 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
     wire [9:0] hpos, vpos;
     hvsync_generator hvsync_gen (.clk(clk), .reset(~rst_n), .hsync(hsync), .vsync(vsync), .display_on(display_on), .hpos(hpos), .vpos(vpos));
 
-    // 2. LFSR
-    reg [7:0] lfsr;
-    always @(posedge clk) begin
-        if (~rst_n) lfsr <= 8'hA1; 
-        else lfsr <= {lfsr[6:0], lfsr[7] ^ lfsr[5] ^ lfsr[4] ^ lfsr[3]};
-    end
+    // (LFSR Removed to save flip-flops/gates, since it was unused)
 
-    // 3. POSITIONS
+    // 2. POSITIONS (Maintained as signed 11-bit for stable edge-bouncing)
     reg signed [10:0] x0, x1, x2, x3;
     reg signed [10:0] y0, y1, y2, y3;
     reg signed [3:0]  vx0, vx1, vx2, vx3;
@@ -31,7 +26,7 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
 
     wire frame_tick = (vpos == 479 && hpos == 639);
 
-    // 4. MOVEMENT
+    // 3. MOVEMENT
     always @(posedge clk) begin
         if (~rst_n) begin
             x0 <= 100; y0 <= 240; vx0 <= 2;  vy0 <= 2;
@@ -55,53 +50,51 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
         end
     end
 
-    // 5. DRAWING ENGINE (Improved E Logic)
-    reg [3:0] ball_hits;
+    // 4. DRAWING ENGINE (Flattened to eliminate for-loop & mux overhead)
     wire signed [10:0] cur_h = {1'b0, hpos};
     wire signed [10:0] cur_v = {1'b0, vpos};
 
-    always @(*) begin
-        ball_hits = 4'b0;
-        begin : drawing_block
-            reg signed [10:0] rx, ry;
-            reg [10:0] ax, ay;
-            reg in_shape, in_letter;
-            integer j;
-            
-            for (j = 0; j < 4; j = j + 1) begin
-                case(j)
-                    0: begin rx = cur_h - x0; ry = cur_v - y0; end
-                    1: begin rx = cur_h - x1; ry = cur_v - y1; end
-                    2: begin rx = cur_h - x2; ry = cur_v - y2; end
-                    default: begin rx = cur_h - x3; ry = cur_v - y3; end
-                endcase
-                
-                ax = (rx[10]) ? -rx : rx;
-                ay = (ry[10]) ? -ry : ry;
-                in_shape = (ax < 60) && (ay < 60) && ((ax + ay) < 85);
-                
-                if (j == 0) begin
-                    in_letter = (ax < 8) && (ay < 35);
-                end else begin
-                    // Clean 'E' logic
-                    if (ax < 25 && ay < 35)
-                        in_letter = !((rx > -10) && ((ry > -23 && ry < -6) || (ry > 6 && ry < 23)));
-                    else
-                        in_letter = 0;
-                end
-                ball_hits[j] = in_shape && !in_letter;
-            end
-        end
-    end
+    // Ball 0 (Letter I)
+    wire signed [10:0] rx0 = cur_h - x0; 
+    wire signed [10:0] ry0 = cur_v - y0;
+    wire [10:0] ax0 = (rx0[10]) ? -rx0 : rx0; 
+    wire [10:0] ay0 = (ry0[10]) ? -ry0 : ry0;
+    wire shape0 = (ax0 < 60) && (ay0 < 60) && ((ax0 + ay0) < 85);
+    wire b0 = shape0 && !((ax0 < 8) && (ay0 < 35));
 
-    // 6. COLOR OUTPUT
+    // Ball 1 (Letter E)
+    wire signed [10:0] rx1 = cur_h - x1; 
+    wire signed [10:0] ry1 = cur_v - y1;
+    wire [10:0] ax1 = (rx1[10]) ? -rx1 : rx1; 
+    wire [10:0] ay1 = (ry1[10]) ? -ry1 : ry1;
+    wire shape1 = (ax1 < 60) && (ay1 < 60) && ((ax1 + ay1) < 85);
+    wire b1 = shape1 && !((ax1 < 25 && ay1 < 35) && !((rx1 > -10) && ((ry1 > -23 && ry1 < -6) || (ry1 > 6 && ry1 < 23))));
+
+    // Ball 2 (Letter E)
+    wire signed [10:0] rx2 = cur_h - x2; 
+    wire signed [10:0] ry2 = cur_v - y2;
+    wire [10:0] ax2 = (rx2[10]) ? -rx2 : rx2; 
+    wire [10:0] ay2 = (ry2[10]) ? -ry2 : ry2;
+    wire shape2 = (ax2 < 60) && (ay2 < 60) && ((ax2 + ay2) < 85);
+    wire b2 = shape2 && !((ax2 < 25 && ay2 < 35) && !((rx2 > -10) && ((ry2 > -23 && ry2 < -6) || (ry2 > 6 && ry2 < 23))));
+
+    // Ball 3 (Letter E)
+    wire signed [10:0] rx3 = cur_h - x3; 
+    wire signed [10:0] ry3 = cur_v - y3;
+    wire [10:0] ax3 = (rx3[10]) ? -rx3 : rx3; 
+    wire [10:0] ay3 = (ry3[10]) ? -ry3 : ry3;
+    wire shape3 = (ax3 < 60) && (ay3 < 60) && ((ax3 + ay3) < 85);
+    wire b3 = shape3 && !((ax3 < 25 && ay3 < 35) && !((rx3 > -10) && ((ry3 > -23 && ry3 < -6) || (ry3 > 6 && ry3 < 23))));
+
+
+    // 5. COLOR OUTPUT
     reg [1:0] r_out, g_out, b_out;
     always @(*) begin
         if (!display_on) begin 
             r_out = 0; g_out = 0; b_out = 0; 
-        end else if (ball_hits[0]) begin 
+        end else if (b0) begin 
             r_out = 3; g_out = 2; b_out = 0; // Orange
-        end else if (|ball_hits[3:1]) begin 
+        end else if (b1 | b2 | b3) begin 
             r_out = 3; g_out = 3; b_out = 3; // White
         end else begin 
             r_out = 0; g_out = 0; b_out = 3; // Blue
@@ -111,6 +104,7 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
     assign uo_out = {hsync, b_out[0], g_out[0], r_out[0], vsync, b_out[1], g_out[1], r_out[1]};
     assign uio_out = 8'b0; 
     assign uio_oe = 8'b0;
-    wire _unused = &{ena, ui_in, uio_in, lfsr};
+    
+    wire _unused = &{ena, ui_in, uio_in};
 
 endmodule
