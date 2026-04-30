@@ -1,6 +1,6 @@
 `default_nettype none
 
-module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
+module tt_um_vga_example (
     input  wire [7:0] ui_in,    
     output wire [7:0] uo_out,   
     input  wire [7:0] uio_in,   
@@ -11,103 +11,106 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
     input  wire       rst_n     
 );
 
-    // 1. VGA SYNC GENERATION
+    // 1. VGA SYNC
     wire hsync, vsync, display_on;
     wire [9:0] hpos, vpos;
+    hvsync_generator hvsync_gen (.clk(clk), .reset(~rst_n), .hsync(hsync), .vsync(vsync), .display_on(display_on), .hpos(hpos), .vpos(vpos));
 
-    hvsync_generator hvsync_gen (
-        .clk(clk), .reset(~rst_n), .hsync(hsync), .vsync(vsync),
-        .display_on(display_on), .hpos(hpos), .vpos(vpos)
-    );
-
-    // 2. RANDOM SEED GENERATOR (LFSR)
-    reg [15:0] lfsr;
+    // 2. LFSR
+    reg [7:0] lfsr;
     always @(posedge clk) begin
-        if (~rst_n) lfsr <= 16'hACE1; 
-        else lfsr <= {lfsr[14:0], lfsr[15] ^ lfsr[13] ^ lfsr[12] ^ lfsr[10]};
+        if (~rst_n) lfsr <= 8'hA1; 
+        else lfsr <= {lfsr[6:0], lfsr[7] ^ lfsr[5] ^ lfsr[4] ^ lfsr[3]};
     end
 
-    // 3. ANIMATION PARAMETERS
-    localparam HALF_SIZE = 60;   
+    // 3. POSITIONS
+    reg signed [10:0] x0, x1, x2, x3;
+    reg signed [10:0] y0, y1, y2, y3;
+    reg signed [3:0]  vx0, vx1, vx2, vx3;
+    reg signed [3:0]  vy0, vy1, vy2, vy3;
 
-    reg signed [10:0] x [0:3];
-    reg signed [10:0] y [0:3];
-    reg signed [3:0]  vx [0:3]; 
-    reg signed [3:0]  vy [0:3];
-    
-    wire frame_tick = (vpos == 10'd479 && hpos == 10'd639);
+    wire frame_tick = (vpos == 479 && hpos == 639);
 
-    // 4. MOVEMENT (Wall Bounce Only - No Inter-ball Collision)
-    integer i;
+    // 4. MOVEMENT
     always @(posedge clk) begin
         if (~rst_n) begin
-            x[0] <= 11'd100; y[0] <= 11'd240; vx[0] <= 4'sd2;  vy[0] <= 4'sd2;
-            x[1] <= 11'd240; y[1] <= 11'd240; vx[1] <= -4'sd2; vy[1] <= 4'sd1;
-            x[2] <= 11'd380; y[2] <= 11'd240; vx[2] <= 4'sd1;  vy[2] <= -4'sd2;
-            x[3] <= 11'd520; y[3] <= 11'd240; vx[3] <= -4'sd1; vy[3] <= -4'sd1;
+            x0 <= 100; y0 <= 240; vx0 <= 2;  vy0 <= 2;
+            x1 <= 240; y1 <= 240; vx1 <= -2; vy1 <= 1;
+            x2 <= 380; y2 <= 240; vx2 <= 1;  vy2 <= -2;
+            x3 <= 520; y3 <= 240; vx3 <= -1; vy3 <= -1;
         end else if (frame_tick) begin
-            for (i = 0; i < 4; i = i + 1) begin
-                x[i] <= x[i] + 11'($signed(vx[i])); 
-                y[i] <= y[i] + 11'($signed(vy[i]));
+            x0 <= x0 + 11'($signed(vx0)); y0 <= y0 + 11'($signed(vy0));
+            x1 <= x1 + 11'($signed(vx1)); y1 <= y1 + 11'($signed(vy1));
+            x2 <= x2 + 11'($signed(vx2)); y2 <= y2 + 11'($signed(vy2));
+            x3 <= x3 + 11'($signed(vx3)); y3 <= y3 + 11'($signed(vy3));
 
-                // Screen Boundary Bouncing
-                if (x[i] < HALF_SIZE) vx[i] <= 4'sd2; 
-                else if (x[i] > 11'd640 - HALF_SIZE) vx[i] <= -4'sd2;
-                
-                if (y[i] < HALF_SIZE) vy[i] <= 4'sd2; 
-                else if (y[i] > 11'd480 - HALF_SIZE) vy[i] <= -4'sd2;
-            end
+            if (x0 < 60) vx0 <= 2; else if (x0 > 580) vx0 <= -2;
+            if (y0 < 60) vy0 <= 2; else if (y0 > 420) vy0 <= -2;
+            if (x1 < 60) vx1 <= 2; else if (x1 > 580) vx1 <= -2;
+            if (y1 < 60) vy1 <= 2; else if (y1 > 420) vy1 <= -2;
+            if (x2 < 60) vx2 <= 2; else if (x2 > 580) vx2 <= -2;
+            if (y2 < 60) vy2 <= 2; else if (y2 > 420) vy2 <= -2;
+            if (x3 < 60) vx3 <= 2; else if (x3 > 580) vx3 <= -2;
+            if (y3 < 60) vy3 <= 2; else if (y3 > 420) vy3 <= -2;
         end
     end
 
-    // 5. SHAPE DRAWING (Octagons + Letters)
-    reg [3:0] ball_pixel;
-    integer j;
+    // 5. DRAWING ENGINE (Improved E Logic)
+    reg [3:0] ball_hits;
+    wire signed [10:0] cur_h = {1'b0, hpos};
+    wire signed [10:0] cur_v = {1'b0, vpos};
+
     always @(*) begin
-        ball_pixel = 4'b0000;
-        for (j = 0; j < 4; j = j + 1) begin
-            begin : draw_logic
-                reg signed [10:0] rel_x, rel_y;
-                reg [10:0] ax, ay;
-                reg in_octagon, in_letter;
+        ball_hits = 4'b0;
+        begin : drawing_block
+            reg signed [10:0] rx, ry;
+            reg [10:0] ax, ay;
+            reg in_shape, in_letter;
+            integer j;
+            
+            for (j = 0; j < 4; j = j + 1) begin
+                case(j)
+                    0: begin rx = cur_h - x0; ry = cur_v - y0; end
+                    1: begin rx = cur_h - x1; ry = cur_v - y1; end
+                    2: begin rx = cur_h - x2; ry = cur_v - y2; end
+                    default: begin rx = cur_h - x3; ry = cur_v - y3; end
+                endcase
                 
-                rel_x = {1'b0, hpos} - x[j];
-                rel_y = {1'b0, vpos} - y[j];
-                ax = (rel_x[10]) ? -rel_x : rel_x;
-                ay = (rel_y[10]) ? -rel_y : rel_y;
-
-                // Octagon Shape (Approximated circle)
-                in_octagon = (ax < 11'd60) && (ay < 11'd60) && ((ax + ay) < 11'd85);
-
-                // Letter Logic
+                ax = (rx[10]) ? -rx : rx;
+                ay = (ry[10]) ? -ry : ry;
+                in_shape = (ax < 60) && (ay < 60) && ((ax + ay) < 85);
+                
                 if (j == 0) begin
-                    in_letter = (ax < 11'd8) && (ay < 11'd35);
+                    in_letter = (ax < 8) && (ay < 35);
                 end else begin
-                    in_letter = ((rel_x >= -11'sd25 && rel_x <= -11'sd10) && (ay < 11'd35)) || // Spine
-                                ((ax < 11'd25) && ((rel_y >= -11'sd35 && rel_y <= -11'sd23) || (ay < 11'd6) || (rel_y >= 11'sd23 && rel_y <= 11'sd35))); // Bars
+                    // Clean 'E' logic
+                    if (ax < 25 && ay < 35)
+                        in_letter = !((rx > -10) && ((ry > -23 && ry < -6) || (ry > 6 && ry < 23)));
+                    else
+                        in_letter = 0;
                 end
-                
-                ball_pixel[j] = in_octagon ^ in_letter;
+                ball_hits[j] = in_shape && !in_letter;
             end
         end
     end
 
     // 6. COLOR OUTPUT
-    reg [1:0] R, G, B;
+    reg [1:0] r_out, g_out, b_out;
     always @(*) begin
         if (!display_on) begin 
-            {R, G, B} = 6'b000000; 
-        end else if (ball_pixel[0]) begin 
-            R = 2'b11; G = 2'b10; B = 2'b00; // Orange (I)
-        end else if (|ball_pixel[3:1]) begin 
-            R = 2'b11; G = 2'b11; B = 2'b11; // White (E)
+            r_out = 0; g_out = 0; b_out = 0; 
+        end else if (ball_hits[0]) begin 
+            r_out = 3; g_out = 2; b_out = 0; // Orange
+        end else if (|ball_hits[3:1]) begin 
+            r_out = 3; g_out = 3; b_out = 3; // White
         end else begin 
-            R = 2'b00; G = 2'b00; B = 2'b11; // Blue Background
+            r_out = 0; g_out = 0; b_out = 3; // Blue
         end
     end
 
-    assign uo_out  = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
-    assign uio_out = 8'b0; assign uio_oe = 8'b0;
+    assign uo_out = {hsync, b_out[0], g_out[0], r_out[0], vsync, b_out[1], g_out[1], r_out[1]};
+    assign uio_out = 8'b0; 
+    assign uio_oe = 8'b0;
     wire _unused = &{ena, ui_in, uio_in, lfsr};
 
 endmodule
