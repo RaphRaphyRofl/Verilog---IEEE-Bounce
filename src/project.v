@@ -1,6 +1,6 @@
 `default_nettype none
 
-module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
+module tt_um_vga_example (
     input  wire [7:0] ui_in,    
     output wire [7:0] uo_out,   
     input  wire [7:0] uio_in,   
@@ -17,7 +17,6 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
     wire hsync, vsync, display_on;
     wire [9:0] hpos, vpos;
 
-    // Instance of external hvsync_generator
     hvsync_generator hvsync_gen (
         .clk(clk), .reset(~rst_n), .hsync(hsync), .vsync(vsync),
         .display_on(display_on), .hpos(hpos), .vpos(vpos)
@@ -37,21 +36,18 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
     // ==========================================
     localparam HALF_SIZE = 60;   
     localparam BOX_SIZE  = 120;  
-    localparam R_SQ      = 3600; 
 
     reg signed [10:0] x [0:3];
     reg signed [10:0] y [0:3];
     reg signed [3:0]  vx [0:3]; 
     reg signed [3:0]  vy [0:3];
     
-    // Timer for 3-second delay (180 frames @ 60fps)
     reg [7:0] start_timer;
-    wire moving = (start_timer == 8'd100);
-
+    wire moving = (start_timer == 8'd180);
     wire frame_tick = (vpos == 10'd479 && hpos == 10'd639);
 
     // ==========================================
-    // 4. MOVEMENT & COLLISION
+    // 4. MOVEMENT & COLLISION (Multiplier-Free)
     // ==========================================
     integer i;
     always @(posedge clk) begin
@@ -66,7 +62,6 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
                 start_timer <= start_timer + 8'd1;
             end else begin
                 for (i = 0; i < 4; i = i + 1) begin
-                    // Width expansion fix: explicitly cast signed velocity to 11 bits
                     x[i] <= x[i] + 11'($signed(vx[i])); 
                     y[i] <= y[i] + 11'($signed(vy[i]));
 
@@ -76,14 +71,12 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
                     if (y[i] < HALF_SIZE) vy[i] <= 4'sd2; 
                     else if (y[i] > 11'd480 - HALF_SIZE) vy[i] <= -4'sd2;
                 end
-                // Index literal fix for task calls
                 check_collision(2'd0, 2'd1); check_collision(2'd0, 2'd2); check_collision(2'd0, 2'd3);
                 check_collision(2'd1, 2'd2); check_collision(2'd1, 2'd3); check_collision(2'd2, 2'd3);
             end
         end
     end
 
-    // Input width fix: change integer to [1:0] to silence unused bit warnings
     task check_collision(input [1:0] a, input [1:0] b);
         reg [10:0] dx, dy;
         begin
@@ -99,7 +92,7 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
     endtask
 
     // ==========================================
-    // 5. SHAPE MATH
+    // 5. SHAPE MATH (Octagon Approximation - Zero Multipliers)
     // ==========================================
     wire [3:0] ball_final;
     genvar g;
@@ -107,33 +100,41 @@ module tt_um_RaphRaphyRofl_VerilogIEEEBounce (
         for (g = 0; g < 4; g = g + 1) begin : logo_draw
             wire signed [10:0] rel_x = {1'b0, hpos} - x[g];
             wire signed [10:0] rel_y = {1'b0, vpos} - y[g];
-            wire in_circle = (rel_x*rel_x + rel_y*rel_y) < R_SQ;
+            
+            // Get Absolute values for geometry
+            wire [10:0] ax = (rel_x[10]) ? -rel_x : rel_x;
+            wire [10:0] ay = (rel_y[10]) ? -rel_y : rel_y;
+
+            // Octagon math: (x < R) && (y < R) && (x+y < 1.4*R)
+            // 1.4 is roughly 3/2 or (x + y + (max(x,y)>>1))
+            wire in_octagon = (ax < 11'd60) && (ay < 11'd60) && ((ax + ay) < 11'd85);
+
             wire in_letter;
             if (g == 0) begin : draw_I
-                assign in_letter = (rel_x >= -11'sd8 && rel_x <= 11'sd8) && (rel_y >= -11'sd35 && rel_y <= 11'sd35);
+                assign in_letter = (ax < 11'd8) && (ay < 11'd35);
             end else begin : draw_E
-                wire spine = (rel_x >= -11'sd25 && rel_x <= -11'sd10) && (rel_y >= -11'sd35 && rel_y <= 11'sd35);
-                wire bars  = (rel_x >= -11'sd25 && rel_x <= 11'sd25) && (
+                wire spine = (rel_x >= -11'sd25 && rel_x <= -11'sd10) && (ay < 11'd35);
+                wire bars  = (ax < 11'd25) && (
                     (rel_y >= -11'sd35 && rel_y <= -11'sd23) || 
-                    (rel_y >= -11'sd6  && rel_y <= 11'sd6)   || 
+                    (ay < 11'd6)   || 
                     (rel_y >= 11'sd23  && rel_y <= 11'sd35)     
                 );
                 assign in_letter = spine | bars;
             end
-            assign ball_final[g] = in_circle ^ in_letter;
+            assign ball_final[g] = in_octagon ^ in_letter;
         end
     endgenerate
 
     // ==========================================
-    // 6. COLOR OUTPUT (Blue Background)
+    // 6. COLOR OUTPUT
     // ==========================================
     reg [1:0] R, G, B;
     always @(*) begin
         if (!display_on) begin 
-            R = 2'b00; G = 2'b00; B = 2'b00; 
+            {R, G, B} = 6'b000000; 
         end else if (ball_final[0]) begin 
             R = 2'b11; G = 2'b10; B = 2'b00; // Orange (I)
-        end else if (ball_final[1] | ball_final[2] | ball_final[3]) begin 
+        end else if (|ball_final[3:1]) begin 
             R = 2'b11; G = 2'b11; B = 2'b11; // White (E)
         end else begin 
             R = 2'b00; G = 2'b00; B = 2'b11; // Blue Background
